@@ -1,0 +1,13 @@
+Metadata-Version: 2.1
+Name: jax-ib
+Version: 0.1.0
+Home-page: https://github.com/hashimmg/jax_IB
+Author: Alhashim
+Author-email: mohammed.mga122@gmail.com
+License: Apache 2.0
+Requires-Python: >=3
+Provides-Extra: data
+Provides-Extra: ml
+Provides-Extra: tests
+Provides-Extra: complete
+License-File: LICENSE
