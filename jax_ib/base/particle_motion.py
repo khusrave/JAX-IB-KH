@@ -77,22 +77,23 @@ def Update_particle_position_Deformable(all_variables, dt):
     MD_var = all_variables.MD_var
 
     new_particles = []
-    for p in particles:
-        # 1. Get current marker positions
+
+    # Check if particles is iterable or single particle
+    if isinstance(particles, (list, tuple)):
+        iterator = particles
+    else:
+        iterator = [particles]
+
+    for p in iterator:
         marker_positions = p.get_marker_positions()  # (n, 2)
 
-        # 2. Interpolate velocity to each marker
         vx_interp = jnp.array([point_interpolation(pos, velocity[0]) for pos in marker_positions])
         vy_interp = jnp.array([point_interpolation(pos, velocity[1]) for pos in marker_positions])
-        marker_velocities = jnp.stack([vx_interp, vy_interp], axis=1)  # (n, 2)
+        marker_velocities = jnp.stack([vx_interp, vy_interp], axis=1)
 
-        # 3. Update marker positions
         new_marker_positions = marker_positions + dt * marker_velocities
-
-        # 4. (Optional) Update particle center as mean of markers
         new_center = jnp.mean(new_marker_positions, axis=0)
 
-        # 5. Recreate the particle with updated marker positions
         new_p = pc.particle(
             particle_center=new_center,
             geometry_param=p.geometry_param,
@@ -102,8 +103,14 @@ def Update_particle_position_Deformable(all_variables, dt):
             shape=p.shape,
             Displacement_EQ=p.Displacement_EQ,
             Rotation_EQ=p.Rotation_EQ,
-            marker_positions=new_marker_positions,  # <-- UPDATE!
+            marker_positions=new_marker_positions,
         )
         new_particles.append(new_p)
 
+    # If only one particle, return single, else list
+    if len(new_particles) == 1:
+        new_particles = new_particles[0]
+
     return pc.All_Variables(new_particles, velocity, pressure, Drag, Step_count, MD_var)
+
+
