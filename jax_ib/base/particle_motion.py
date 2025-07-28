@@ -83,17 +83,12 @@ def Update_particle_position_Deformable(all_variables, dt):
         iterator = particles
     else:
         iterator = [particles]
-
     for p in iterator:
         marker_positions = p.get_marker_positions()  # (n, 2)
-
         vx_interp = jnp.array([point_interpolation(pos, velocity[0]) for pos in marker_positions])
         vy_interp = jnp.array([point_interpolation(pos, velocity[1]) for pos in marker_positions])
         marker_velocities = jnp.stack([vx_interp, vy_interp], axis=1)
-        print("dt.shape:", jnp.shape(dt))
-        print("marker_positions.shape:", marker_positions.shape)
-        print("marker_velocities.shape:", marker_velocities.shape)
-        print("dt * marker_velocities shape:", jnp.shape(dt * marker_velocities))
+
         new_marker_positions = marker_positions + dt * marker_velocities
         new_center = jnp.mean(new_marker_positions, axis=0)
 
