@@ -116,18 +116,19 @@ class particle:
     Rotation_EQ: Callable
     marker_positions: Optional[Any] = None  # <-- NEW
 
-
     def get_marker_positions(self):
         if self.marker_positions is not None:
             return self.marker_positions
         x, y = self.shape(self.geometry_param, self.Grid)
-        print("x.shape:", x.shape)
-        print("y.shape:", y.shape)
-        print("particle_center:", self.particle_center)
-        x = x + self.particle_center[0]
-        y = y + self.particle_center[1]
-        print("x after adding center shape:", x.shape)
-        print("y after adding center shape:", y.shape)
+        jax.debug.print("x.shape = {}", x.shape)
+        jax.debug.print("y.shape = {}", y.shape)
+        jax.debug.print("particle_center = {}", self.particle_center)
+        center = jnp.array(self.particle_center).reshape(-1)
+        jax.debug.print("reshaped center = {}", center)
+        x = x + center[0]
+        y = y + center[1]
+        jax.debug.print("x after adding center = {}", x.shape)
+        jax.debug.print("y after adding center = {}", y.shape)
         return jnp.stack([x, y], axis=1)
 
     def tree_flatten(self):
