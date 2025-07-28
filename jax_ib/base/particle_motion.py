@@ -2,6 +2,8 @@ from jax_ib.base import particle_class as pc
 import jax
 import jax.numpy as jnp
 
+from jax_ib.base.interpolation import point_interpolation
+
 
 def Update_particle_position_Multiple_and_MD_Step(step_fn,all_variables,dt):
     particles = all_variables.particles
@@ -64,3 +66,44 @@ def Update_particle_position_Multiple(all_variables,dt):
     New_particles = pc.particle(Newparticle_center,param_geometry,displacement_param,rotation_param,mygrids,shape_fn,Displacement_EQ,particles.Rotation_EQ)
     
     return pc.All_Variables(New_particles,velocity,pressure,Drag,Step_count,MD_var)
+
+
+def Update_particle_position_Deformable(all_variables, dt):
+    particles = all_variables.particles
+    velocity = all_variables.velocity
+    Drag = all_variables.Drag
+    pressure = all_variables.pressure
+    Step_count = all_variables.Step_count + 1
+    MD_var = all_variables.MD_var
+
+    new_particles = []
+    for p in particles:
+        # 1. Get current marker positions
+        marker_positions = p.get_marker_positions()  # (n, 2)
+
+        # 2. Interpolate velocity to each marker
+        vx_interp = jnp.array([point_interpolation(pos, velocity[0]) for pos in marker_positions])
+        vy_interp = jnp.array([point_interpolation(pos, velocity[1]) for pos in marker_positions])
+        marker_velocities = jnp.stack([vx_interp, vy_interp], axis=1)  # (n, 2)
+
+        # 3. Update marker positions
+        new_marker_positions = marker_positions + dt * marker_velocities
+
+        # 4. (Optional) Update particle center as mean of markers
+        new_center = jnp.mean(new_marker_positions, axis=0)
+
+        # 5. Recreate the particle with updated marker positions
+        new_p = pc.particle(
+            particle_center=new_center,
+            geometry_param=p.geometry_param,
+            displacement_param=p.displacement_param,
+            rotation_param=p.rotation_param,
+            Grid=p.Grid,
+            shape=p.shape,
+            Displacement_EQ=p.Displacement_EQ,
+            Rotation_EQ=p.Rotation_EQ,
+            marker_positions=new_marker_positions,  # <-- UPDATE!
+        )
+        new_particles.append(new_p)
+
+    return pc.All_Variables(new_particles, velocity, pressure, Drag, Step_count, MD_var)

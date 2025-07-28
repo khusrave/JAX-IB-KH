@@ -114,6 +114,16 @@ class particle:
     shape: Callable
     Displacement_EQ: Callable
     Rotation_EQ: Callable
+    marker_positions: Optional[Any] = None  # <-- NEW
+
+    def get_marker_positions(self):
+        if self.marker_positions is not None:
+            return self.marker_positions
+        # Fallback: generate default markers from shape & geometry, shifted to center
+        x, y = self.shape(self.geometry_param, self.Grid)
+        x = x + self.particle_center[0]
+        y = y + self.particle_center[1]
+        return jnp.stack([x, y], axis=1)
     
     
 
