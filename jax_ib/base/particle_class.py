@@ -114,11 +114,11 @@ class particle:
     shape: Callable
     Displacement_EQ: Callable
     Rotation_EQ: Callable
+    
+    
 
-
-
-
-
+    
+    
     def tree_flatten(self):
       """Returns flattening recipe for GridVariable JAX pytree."""
       children = (self.particle_center,self.geometry_param,self.displacement_param,self.rotation_param,)
