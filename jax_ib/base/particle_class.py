@@ -101,69 +101,145 @@ class Grid1d:
     return self.axes(offset)
 
 
+# In jax_ib/base/particle_class.py
 
+# ... (keep existing imports like dataclasses, jnp, etc.)
+# ... (keep the Grid1d class as is)
 
 @register_pytree_node_class
 @dataclasses.dataclass
-class particle: 
+class particle:
+    """A Pytree that contains all the information about the immersed boundary"""
     particle_center: Sequence[Any]
     geometry_param: Sequence[Any]
     displacement_param: Sequence[Any]
     rotation_param: Sequence[Any]
+
+    # --- ADD NEW DYNAMIC FIELDS HERE ---
+    mass_marker_positions: Optional[jnp.ndarray]
+    point_force: Optional[jnp.ndarray]
+    sigma: float
+    Kp: float
+    particle_mass: float
+    g_vec: Optional[jnp.ndarray]
+
+    # --- AUXILIARY (NON-JIT) DATA ---
     Grid: Grid1d
     shape: Callable
     Displacement_EQ: Callable
     Rotation_EQ: Callable
-    
-    
 
-    
-    
     def tree_flatten(self):
-      """Returns flattening recipe for GridVariable JAX pytree."""
-      children = (self.particle_center,self.geometry_param,self.displacement_param,self.rotation_param,)
- 
-      aux_data = (self.Grid,self.shape,self.Displacement_EQ,self.Rotation_EQ,)
-      return children, aux_data
+        """Returns flattening recipe for GridVariable JAX pytree."""
+        # --- UPDATE THE CHILDREN TUPLE WITH ALL JIT-COMPATIBLE FIELDS ---
+        children = (self.particle_center, self.geometry_param,
+                    self.displacement_param, self.rotation_param,
+                    self.mass_marker_positions, self.point_force,
+                    self.sigma, self.Kp, self.particle_mass, self.g_vec)
+
+        aux_data = (self.Grid, self.shape, self.Displacement_EQ, self.Rotation_EQ)
+        return children, aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-       """Returns unflattening recipe for GridVariable JAX pytree."""
-       return cls(*children,*aux_data) 
+        """Returns unflattening recipe for GridVariable JAX pytree."""
+        # This now correctly unpacks all children and aux_data
+        return cls(*children, *aux_data)
+
+    # --- ADD A CUSTOM CONSTRUCTOR FOR EASIER USE ---
+    # This allows creating a particle without providing all arguments every time.
+    @classmethod
+    def create(cls,
+               particle_center,
+               geometry_param,
+               shape_fn,
+               displacement_param=None,
+               rotation_param=None,
+               displacement_eq=None,
+               rotation_eq=None,
+               grid=None,
+               mass_marker_positions=None,
+               sigma=0.0,
+               Kp=0.0,
+               particle_mass=1.0,
+               g_vec=None):
+        """A user-friendly constructor for the particle class."""
+        return cls(
+            particle_center=particle_center,
+            geometry_param=geometry_param,
+            displacement_param=displacement_param,
+            rotation_param=rotation_param,
+            mass_marker_positions=mass_marker_positions,
+            point_force=None,  # point_force is a result, initialized to None
+            sigma=sigma,
+            Kp=Kp,
+            particle_mass=particle_mass,
+            g_vec=g_vec,
+            Grid=grid,
+            shape=shape_fn,
+            Displacement_EQ=displacement_eq,
+            Rotation_EQ=rotation_eq
+        )
 
     def generate_grid(self):
-        
         return self.Grid.mesh()
-       
-    def calc_Rtheta(self):
-      return self.shape(self.geometry_param,self.Grid) 
 
+    def get_shape(self, current_t):
+        """Calculates the current positions of the boundary markers."""
+        # This is a key function. For dynamic bodies, it should return the
+        # current positions stored in the state. For kinematic bodies, it
+        # calculates them based on the prescribed motion.
+        # The library's `Update_particle_position_Multiple` function modifies
+        # the particle_center and rotation to achieve this.
 
+        xp0, yp0 = self.shape(self.geometry_param, self.Grid.mesh())  # Using self.shape and self.Grid
+
+        # NOTE: For a fully dynamic body, we would eventually remove this kinematic part.
+        rotation_angle = self.Rotation_EQ([self.rotation_param], current_t) if self.Rotation_EQ else 0.0
+        center_pos = self.Displacement_EQ([self.displacement_param],
+                                          current_t) if self.Displacement_EQ else self.particle_center
+
+        xp = (xp0) * jnp.cos(rotation_angle) - (yp0) * jnp.sin(rotation_angle) + center_pos[0]
+        yp = (xp0) * jnp.sin(rotation_angle) + (yp0) * jnp.cos(rotation_angle) + center_pos[1]
+
+        return xp, yp
 
 
 @register_pytree_node_class
 @dataclasses.dataclass
-class All_Variables: 
-    particles: Sequence[particle,]
+class All_Variables:
+    """A Pytree that contains all the information for an immersed boundary simulation."""
+    particles: particle
     velocity: grids.GridVariableVector
     pressure: grids.GridVariable
-    Drag:Sequence[Any]
-    Step_count:int
-    MD_var:Any
+    intermediate_calcs: Sequence[Any]
+    step_counter: int
+    MD_var: Any
+
     def tree_flatten(self):
-      """Returns flattening recipe for GridVariable JAX pytree."""
-      children = (self.particles,self.velocity,self.pressure,self.Drag,self.Step_count,self.MD_var,)
- 
-      aux_data = None
-      return children, aux_data
+        """Returns flattening recipe for GridVariable JAX pytree."""
+        children = (self.particles, self.velocity, self.pressure,
+                    self.intermediate_calcs, self.step_counter, self.MD_var)
+
+        aux_data = None
+        return children, aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-       """Returns unflattening recipe for GridVariable JAX pytree."""
-       return cls(*children) 
-    
+        """Returns unflattening recipe for GridVariable JAX pytree."""
+        return cls(*children)
 
-        
+    @classmethod
+    def create(cls, *, particles, velocity, pressure):
+        """Creates a new All_Variables state."""
+        return cls(
+            particles=particles,
+            velocity=velocity,
+            pressure=pressure,
+            intermediate_calcs=[0],
+            step_counter=0,
+            MD_var=[0],
+        )
     
 @register_pytree_node_class
 @dataclasses.dataclass
