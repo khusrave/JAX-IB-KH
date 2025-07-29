@@ -157,7 +157,7 @@ class particle:
                rotation_param=None,
                displacement_eq=None,
                rotation_eq=None,
-               grid=None,
+               Grid=None,  # <-- CORRECTED: Argument is now 'Grid' with a capital G
                mass_marker_positions=None,
                sigma=0.0,
                Kp=0.0,
@@ -170,12 +170,12 @@ class particle:
             displacement_param=displacement_param,
             rotation_param=rotation_param,
             mass_marker_positions=mass_marker_positions,
-            point_force=None,  # point_force is a result, initialized to None
+            point_force=None,
             sigma=sigma,
             Kp=Kp,
             particle_mass=particle_mass,
             g_vec=g_vec,
-            Grid=grid,
+            Grid=Grid,  # <-- CORRECTED: Pass the 'Grid' argument here
             shape=shape_fn,
             Displacement_EQ=displacement_eq,
             Rotation_EQ=rotation_eq
