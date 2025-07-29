@@ -4,12 +4,10 @@ from jax_ib.base import grids
 from jax import debug as jax_debug
 
 
-# --- HELPER FUNCTIONS FOR FORCES ---
+# --- HELPER FUNCTIONS ---
 
 def calculate_tension_force(xp, yp, sigma):
-    """
-    Calculates the surface tension force on each Lagrangian marker.
-    """
+    """Calculates the surface tension force (component-wise)."""
     dxL = jnp.roll(xp, -1) - xp
     dyL = jnp.roll(yp, -1) - yp
     dS = jnp.sqrt(dxL ** 2 + dyL ** 2) + 1e-9
@@ -17,86 +15,70 @@ def calculate_tension_force(xp, yp, sigma):
     l_hat_y = dyL / dS
     l_hat_x_prev = jnp.roll(l_hat_x, 1)
     l_hat_y_prev = jnp.roll(l_hat_y, 1)
-    # Note: This is the expanding-force version.
-    force_x = sigma * (l_hat_x - l_hat_x_prev)
+    force_x = sigma * (l_hat_x - l_hat_x_prev)  # NOTE: This is the expanding version from your notebook
     force_y = sigma * (l_hat_y - l_hat_y_prev)
     return force_x, force_y
 
 
 def calculate_penalty_force(mass_marker_positions, fluid_marker_positions, Kp):
-    """
-    Calculates the penalty force (spring force) based on Sustiel & Grier, Eq. (4).
-    F_m = Kp * (Y_m - X_m)
-    Returns a (N, 2) array of force vectors.
-    """
+    """Calculates the penalty (spring) force between mass and fluid markers."""
     force = Kp * (mass_marker_positions - fluid_marker_positions)
     return force
 
 
-# --- INTEGRATION HELPER FUNCTIONS (Unchanged) ---
-
-def integrate_trapz(integrand, dx, dy):
-    return jnp.trapz(jnp.trapz(integrand, dx=dx), dx=dy)
-
-
-def Integrate_Field_Fluid_Domain(field):
-    grid = field.grid
-    dxEUL = grid.step[0]
-    dyEUL = grid.step[1]
-    return integrate_trapz(field.data, dxEUL, dyEUL)
-
-
-# --- CORE FORCING FUNCTION (Modified for Dynamic Forces) ---
-
+# --- MODIFIED CORE FORCING FUNCTION ---
+# This function is the only one we need to modify to add the new force.
 def IBM_force_GENERAL(
         field, Xi, particle_center, geom_param, Grid_p, shape_fn,
         discrete_fn, surface_fn, dx_dt, domega_dt, rotation, dt,
-        # Add new arguments to receive dynamic properties
+        sigma=0.0,  # Keep sigma from the old signature for now
+        # ADD new arguments that we will get from the `particles` object
         mass_marker_positions=None,
-        sigma=0.0,
-        Kp=0.0
+        Kp=0.0,
+        particle_mass=1.0,
+        g_vec=None
 ):
     grid = field.grid
     offset = field.offset
     X, Y = grid.mesh(offset)
     current_t = field.bc.time_stamp
 
-    # This part calculates the current fluid marker positions (X_m)
+    # This part calculates the current fluid marker positions (X_m) from kinematics
     xp0, yp0 = shape_fn(geom_param, Grid_p)
     xp = (xp0) * jnp.cos(rotation(current_t)) - (yp0) * jnp.sin(rotation(current_t)) + particle_center[0]
     yp = (xp0) * jnp.sin(rotation(current_t)) + (yp0) * jnp.cos(rotation(current_t)) + particle_center[1]
     fluid_positions = jnp.stack([xp, yp], axis=-1)
 
-    # --- START OF MODIFICATIONS ---
-    # We will now calculate a total point force from dynamic sources
-    # and use it INSTEAD of the kinematic direct forcing.
+    # Calculate segment lengths (dS) for density conversion (unchanged)
+    dxL = jnp.roll(xp, -1) - xp
+    dyL = jnp.roll(yp, -1) - yp
+    dS = jnp.sqrt(dxL ** 2 + dyL ** 2) + 1e-9
 
-    # Initialize total point force array (N, 2)
+    # --- START OF MODIFICATIONS ---
+
+    # Initialize point forces as zero vectors
     total_point_force = jnp.zeros_like(fluid_positions)
 
-    # 1. Calculate and add surface tension force
-    if sigma is not None and sigma > 0.0:
+    # 1. Calculate and add tension force (if sigma > 0)
+    if sigma > 0.0:
         tension_force_x, tension_force_y = calculate_tension_force(xp, yp, sigma)
         total_point_force += jnp.stack([tension_force_x, tension_force_y], axis=-1)
 
-    # 2. Calculate and add penalty force
-    if Kp is not None and Kp > 0.0 and mass_marker_positions is not None:
+    # 2. Calculate and add penalty force (if Kp > 0)
+    if Kp > 0.0 and mass_marker_positions is not None:
         penalty_force = calculate_penalty_force(mass_marker_positions, fluid_positions, Kp)
         total_point_force += penalty_force
 
-    # The force on the fluid is the reaction force (-F_total).
-    # We select the component (x or y) for this specific call.
+    # For a purely dynamic body, the "direct forcing" (from prescribed motion) is zero.
+    # The total force density on the fluid is the reaction to our calculated dynamic forces.
+    # The reaction force is -total_point_force.
+
     if Xi == 0:
         point_force_component = -total_point_force[:, 0]
     else:  # Xi == 1
         point_force_component = -total_point_force[:, 1]
 
-    # Calculate segment lengths dS for density conversion (unchanged)
-    dxL = jnp.roll(xp, -1) - xp
-    dyL = jnp.roll(yp, -1) - yp
-    dS = jnp.sqrt(dxL ** 2 + dyL ** 2) + 1e-9
-
-    # Convert the point force component into a force density
+    # Convert point force to force density by dividing by segment length
     total_force_density = point_force_component / dS
 
     # --- END OF MODIFICATIONS ---
@@ -122,11 +104,9 @@ def IBM_force_GENERAL(
     return jnp.sum(jax.pmap(foo_pmap)(jnp.array(mapped)), axis=0)
 
 
-# --- WRAPPER FUNCTIONS (Modified to handle new state and parameters) ---
+# --- WRAPPER FUNCTIONS (Modified to pass new state and parameters) ---
 
-def IBM_Multiple_NEW(
-        field, Xi, particles, discrete_fn, surface_fn, dt
-):
+def IBM_Multiple_NEW(field, Xi, particles, discrete_fn, surface_fn, dt, sigma=0.0):
     Grid_p = particles.generate_grid()
     shape_fn = particles.shape
     Displacement_EQ = particles.Displacement_EQ
@@ -136,45 +116,45 @@ def IBM_Multiple_NEW(
     geom_param = particles.geometry_param
     displacement_param = particles.displacement_param
     rotation_param = particles.rotation_param
-
-    # Extract dynamic properties from the particle object
-    mass_marker_positions = particles.mass_marker_positions
-    sigma = particles.sigma
-    Kp = particles.Kp
-
     force = jnp.zeros_like(field.data)
+
+    # --- Extract dynamic properties from the particle object ---
+    # These will be passed down to IBM_force_GENERAL
+    mass_marker_positions = particles.mass_marker_positions
+    Kp = particles.Kp
+    particle_mass = particles.particle_mass
+    g_vec = particles.g_vec
+    # The 'sigma' from the function signature overrides the particle's sigma for now.
+
     for i in range(Nparticles):
-        # NOTE: For a fully dynamic simulation, the kinematic part (Xc, rotation)
-        # should be turned off (e.g., params set to zero). The positions xp, yp
-        # would then come from interpolating the fluid velocity.
-        # For now, we keep the structure but our new forces will dominate.
-        Xc = lambda t: Displacement_EQ([displacement_param[i]], t)
-        rotation = lambda t: Rotation_EQ([rotation_param[i]], t)
+        Xc = lambda t: Displacement_EQ([displacement_param[i]], t) if Displacement_EQ else particle_center[i]
+        rotation = lambda t: Rotation_EQ([rotation_param[i]], t) if Rotation_EQ else 0.0
         dx_dt = jax.jacrev(Xc)
         domega_dt = jax.jacrev(rotation)
 
         force += IBM_force_GENERAL(
             field, Xi, particle_center[i], geom_param[i], Grid_p, shape_fn,
             discrete_fn, surface_fn, dx_dt, domega_dt, rotation, dt,
-            mass_marker_positions=mass_marker_positions,  # Pass state
-            sigma=sigma, Kp=Kp  # Pass parameters
+            sigma=sigma,  # <-- using sigma from the argument list
+            mass_marker_positions=mass_marker_positions,
+            Kp=Kp,
+            particle_mass=particle_mass,
+            g_vec=g_vec
         )
     return grids.GridArray(force, field.offset, field.grid)
 
 
 def calc_IBM_force_NEW_MULTIPLE(all_variables, discrete_fn, surface_fn, dt, sigma=0.0):
-    # This function is now the kinematic entry point.
-    # To use our dynamic forces, we will call a different function from the notebook.
     velocity = all_variables.velocity
     particles = all_variables.particles
-    # To use the dynamic version, we need to pass sigma, Kp, etc., from the particle object.
-    # We will modify this to read from the particle object if available.
-    if hasattr(particles, 'sigma'):
-        sigma = particles.sigma  # Override with value from particle object
+
+    # If the particle object has a sigma, use it. Otherwise use the one passed as an argument.
+    # This maintains backward compatibility.
+    sigma_to_use = particles.sigma if hasattr(particles, 'sigma') and particles.sigma > 0 else sigma
 
     axis = [0, 1]
     ibm_forcing = lambda field, Xi: IBM_Multiple_NEW(
-        field, Xi, all_variables.particles, discrete_fn, surface_fn, dt
+        field, Xi, particles, discrete_fn, surface_fn, dt, sigma=sigma_to_use
     )
 
     return tuple(grids.GridVariable(ibm_forcing(field, Xi), field.bc) for field, Xi in zip(velocity, axis))
