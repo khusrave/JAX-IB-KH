@@ -172,8 +172,10 @@ def navier_stokes_rk_updated(
         return u0.tree.particles
     def the_pressure(u0):
         return u0.tree.pressure
+
     def the_Drag(u0):
-        return u0.tree.Drag
+      # --- CHANGE THIS LINE ---
+      return u0.tree.intermediate_calcs  # OLD: return u0.tree.Drag
     
     
     particles = the_particles(u0)
