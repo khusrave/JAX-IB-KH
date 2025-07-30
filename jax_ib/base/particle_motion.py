@@ -4,7 +4,7 @@ from jax_ib.base import IBM_Force
 import jax
 import jax.numpy as jnp
 
-def update_massive_deformable_particle(all_variables, dt, gravity_g=0.0):
+def update_massive_deformable_particle(all_variables, surface_fn, dt, gravity_g=0.0):
     """
     Updates the state of a massive, deformable particle for one time step.
     This version is now fully consistent and JAX-compatible.
@@ -15,8 +15,16 @@ def update_massive_deformable_particle(all_variables, dt, gravity_g=0.0):
     particle = particles_container.particles[0] 
     
     # --- 1. Advect Fluid Markers (X) ---
-    U_fluid_x_pts = jax.vmap(interpolation.point_interpolation, in_axes=(0, None))(jnp.stack([particle.xp, particle.yp], axis=1), velocity_field[0].array)
-    U_fluid_y_pts = jax.vmap(interpolation.point_interpolation, in_axes=(0, None))(jnp.stack([particle.xp, particle.yp], axis=1), velocity_field[1].array)
+    # print(rotation(current_t))
+    # velocity_at_surface = surface_fn(field, xp, yp)
+
+    # U_fluid_x_pts = jax.vmap(interpolation.point_interpolation, in_axes=(0, None))(jnp.stack([particle.xp, particle.yp], axis=1), velocity_field[0].array)
+    # U_fluid_y_pts = jax.vmap(interpolation.point_interpolation, in_axes=(0, None))(jnp.stack([particle.xp, particle.yp], axis=1), velocity_field[1].array)
+
+    # NEW lines:
+    U_fluid_x_pts = surface_fn(velocity_field[0], particle.xp, particle.yp)
+    U_fluid_y_pts = surface_fn(velocity_field[1], particle.xp, particle.yp)
+    # --- END OF MODIFICATION ---
     
     new_xp = particle.xp + dt * U_fluid_x_pts
     new_yp = particle.yp + dt * U_fluid_y_pts
