@@ -35,7 +35,7 @@ To use a local version of the code, follow these steps:
 
 The repository contains two examples:
 
-- [Flapping of an ellipse airfoil](https://github.com/khusrave/JAX-IB-KH/blob/main/jax_ib/notebooks/Flapping_Demo.ipynb)
+- [Flapping of an ellipse airfoil](https://github.com/hashimmg/jax_ib/blob/main/jax_ib/notebooks/Flapping_Demo.ipynb)
 - [Mixing in Journal bearing](https://github.com/hashimmg/jax_ib/blob/main/jax_ib/notebooks/journal_bearing_demo.ipynb)
 - [Taylor Dispersion](https://github.com/hashimmg/jax_ib/blob/main/jax_ib/notebooks/taylor_dispersion_demo.ipynb)
 
